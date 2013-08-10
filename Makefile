@@ -5,6 +5,7 @@ DEPS := .depend
 OUT := redsocks
 VERSION := 0.4
 
+
 LIBS := -levent
 CFLAGS += -g -O2
 override CFLAGS += -std=gnu99 -Wall
