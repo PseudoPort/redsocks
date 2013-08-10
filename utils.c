@@ -27,6 +27,10 @@
 #include "redsocks.h" // for redsocks_close
 #include "libc-compat.h"
 
+#define IP_ORIGDSTADDR 20
+#define IP_TRANSPARENT 19
+#define IP_RECVORIGDSTADDR IP_ORIGDSTADDR
+
 int red_recv_udp_pkt(int fd, char *buf, size_t buflen, struct sockaddr_in *inaddr, struct sockaddr_in *toaddr)
 {
 	socklen_t addrlen = sizeof(*inaddr);
