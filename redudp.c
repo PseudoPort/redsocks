@@ -34,10 +34,14 @@
 #include "redudp.h"
 #include "libc-compat.h"
 
+#define IP_ORIGDSTADDR 20
+#define IP_TRANSPARENT 19
+#define IP_RECVORIGDSTADDR IP_ORIGDSTADDR
+
 #define redudp_log_error(client, prio, msg...) \
 	redsocks_log_write_plain(__FILE__, __LINE__, __func__, 0, &(client)->clientaddr, get_destaddr(client), prio, ## msg)
 #define redudp_log_errno(client, prio, msg...) \
-	redsocks_log_write_plain(__FILE__, __LINE__, __func__, 1, &(client)->clientaddr, get_destaddr(client), prio, ## msg)
+	redsocks_log_write_plain(__FILE__, LINE, func, 1, &(client)->clientaddr, get_destaddr(client), prio, ## msg)
 
 static void redudp_pkt_from_socks(int fd, short what, void *_arg);
 static void redudp_drop_client(redudp_client *client);
