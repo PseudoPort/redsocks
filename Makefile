@@ -1,52 +1,89 @@
-#
-# Copyright (C) 2012 OpenWrt.org
-#
-# This is free software, licensed under the GNU General Public License v2.
-# See /LICENSE for more information.
-#
-include $(TOPDIR)/rules.mk
+OBJS := parser.o main.o redsocks.o log.o http-connect.o socks4.o socks5.o http-relay.o base.o base64.o md5.o http-auth.o utils.o redudp.o dnstc.o gen/version.o
+SRCS := $(OBJS:.o=.c)
+CONF := config.h
+DEPS := .depend
+OUT := redsocks
+VERSION := 0.4
 
-PKG_NAME:=redsocks
-PKG_VERSION:=0.4
-PKG_RELEASE=$(PKG_SOURCE_VERSION)
+LIBS := -levent
+CFLAGS += -g -O2
+override CFLAGS += -std=gnu99 -Wall
 
-PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/darkk/redsocks.git
-PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
-PKG_SOURCE_VERSION:=a9cfd090119385a1ef973baf94342a2db20595b9
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION)-$(PKG_SOURCE_VERSION).tar.gz
+all: $(OUT)
 
-include $(INCLUDE_DIR)/package.mk
+.PHONY: all clean distclean
 
-define Package/redsocks
-  SECTION:=net
-  CATEGORY:=Network
-  SUBMENU:=Web Servers/Proxies
-  DEPENDS:=+libevent2
-  TITLE:=Redirect any TCP connection to a SOCKS or HTTPS proxy server
-endef
+tags: *.c *.h
+	ctags -R
 
-define Package/redsocks/description
-  Redsocks is a daemon running on the local system, that will transparently
-  tunnel any TCP connection via a remote SOCKS4, SOCKS5 or HTTP proxy server. It
-  uses the system firewall's redirection facility to intercept TCP connections,
-  thus the redirection is system-wide, with fine-grained control, and does
-  not depend on LD_PRELOAD libraries.
+$(CONF):
+	@case `uname` in \
+	Linux*) \
+		echo "#define USE_IPTABLES" >$(CONF) \
+		;; \
+	OpenBSD) \
+		echo "#define USE_PF" >$(CONF) \
+		;; \
+	*) \
+		echo "Unknown system, only generic firewall code is compiled" 1>&2; \
+		echo "/* Unknown system, only generic firewall code is compiled */" >$(CONF) \
+		;; \
+	esac
 
-  Redsocks supports tunneling TCP connections and UDP packets. It has
-  authentication support for both, SOCKS and HTTP proxies.
+# Dependency on .git is useful to rebuild `version.c' after commit, but it breaks non-git builds.
+gen/version.c: *.c *.h gen/.build
+	rm -f $@.tmp
+	echo '/* this file is auto-generated during build */' > $@.tmp
+	echo '#include "../version.h"' >> $@.tmp
+	echo 'const char* redsocks_version = ' >> $@.tmp
+	if [ -d .git ]; then \
+		echo '"redsocks.git/'`git describe --tags`'"'; \
+		if [ `git status --porcelain | grep -v -c '^??'` != 0 ]; then \
+			echo '"-unclean"'; \
+		fi \
+	else \
+		echo '"redsocks/$(VERSION)"'; \
+	fi >> $@.tmp
+	echo ';' >> $@.tmp
+	mv -f $@.tmp $@
 
-  Also included is a small DNS server returning answers with the "truncated" flag
-  set for any UDP query, forcing the resolver to use TCP.
-endef
+gen/.build:
+	mkdir -p gen
+	touch $@
 
-define Package/redsocks/install
-  $(INSTALL_DIR) $(1)/usr/sbin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/redsocks $(1)/usr/sbin/
-	$(INSTALL_DIR) $(1)/etc/init.d
-	$(INSTALL_BIN) ./files/redsocks.init $(1)/etc/init.d/redsocks
-	$(INSTALL_DIR) $(1)/etc
-	$(INSTALL_CONF) $(PKG_BUILD_DIR)/redsocks.conf.example $(1)/etc/redsocks.conf
-endef
+base.c: $(CONF)
 
-$(eval $(call BuildPackage,redsocks))
+$(DEPS): $(SRCS)
+	gcc -MM $(SRCS) 2>/dev/null >$(DEPS) || \
+	( \
+		for I in $(wildcard *.h); do \
+			export $${I//[-.]/_}_DEPS="`sed '/^\#[ \t]*include \?"\(.*\)".*/!d;s//\1/' $$I`"; \
+		done; \
+		echo -n >$(DEPS); \
+		for SRC in $(SRCS); do \
+			echo -n "$${SRC%.c}.o: " >>$(DEPS); \
+			export SRC_DEPS="`sed '/\#[ \t]*include \?"\(.*\)".*/!d;s//\1/' $$SRC | sort`"; \
+			while true; do \
+				export SRC_DEPS_OLD="$$SRC_DEPS"; \
+				export SRC_DEEP_DEPS=""; \
+				for HDR in $$SRC_DEPS; do \
+					eval export SRC_DEEP_DEPS="\"$$SRC_DEEP_DEPS \$$$${HDR//[-.]/_}_DEPS\""; \
+				done; \
+				export SRC_DEPS="`echo $$SRC_DEPS $$SRC_DEEP_DEPS | sed 's/  */\n/g' | sort -u`"; \
+				test "$$SRC_DEPS" = "$$SRC_DEPS_OLD" && break; \
+			done; \
+			echo $$SRC $$SRC_DEPS >>$(DEPS); \
+		done; \
+	)
+
+-include $(DEPS)
+
+$(OUT): $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS) $(LIBS)
+
+clean:
+	$(RM) $(OUT) $(CONF) $(OBJS)
+
+distclean: clean
+	$(RM) tags $(DEPS)
+	$(RM) -r gen
